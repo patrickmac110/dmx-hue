@@ -1,0 +1,20 @@
+[Unit]
+Description=Reliable Art-Net to Hue bridge
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+# Edit these paths/user for this Pi. Run setup as the same user first.
+User=pi
+WorkingDirectory=/home/pi/dmx-hue-v4
+ExecStart=/usr/bin/node /home/pi/dmx-hue-v4/bin/dmx-hue.js --dashboard-host 0.0.0.0
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=25
+NoNewPrivileges=true
+PrivateTmp=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

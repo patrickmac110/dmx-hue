@@ -1,6 +1,8 @@
 #!/usr/bin/env node
-import process from 'node:process';
-import { DmxHue } from '../index.js';
-
+import { DmxHue } from "../index.js";
 const cli = new DmxHue(process.argv.slice(2));
-cli.run();
+cli.run().catch(async (error) => {
+  console.error(error.message);
+  await cli.stop();
+  process.exitCode = 1;
+});
