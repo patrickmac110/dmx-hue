@@ -1,124 +1,157 @@
-# :traffic_light: dmx-hue
+# DMX Hue 4 (hardware-validation beta)
 
-[![NPM version](https://img.shields.io/npm/v/dmx-hue.svg)](https://www.npmjs.com/package/dmx-hue)
-[![Build Status](https://github.com/sinedied/dmx-hue/workflows/build/badge.svg)](https://github.com/sinedied/dmx-hue/actions)
-![Node version](https://img.shields.io/node/v/dmx-hue.svg)
-[![XO code style](https://img.shields.io/badge/code_style-XO-5ed9c7.svg)](https://github.com/sindresorhus/xo)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+A local Art-Net receiver for Raspberry Pi that translates Luminair DMX into Philips Hue API v2 commands, with optional Hue Entertainment v2 streaming.
 
-![dmx-hue-logo](https://cloud.githubusercontent.com/assets/593151/26761623/710db1ba-4933-11e7-9a08-471e3f9fb9e5.png)
+**Luminair remains the editor for every color, scene, fade, and effect.** No Hue scenes are required. This rewrite is intended for testing before use during a service; automated tests do not replace a physical-light rehearsal.
 
-> Art-Net node to control Philips Hue lights with DMX
+## What's changed
 
-## Installation
+- Failed writes remain pending and retry with backoff. Incoming DMX replaces obsolete pending targets.
+- Fair individual-light scheduling, at most one outstanding control write, and no stale command backlog.
+- Matching targets can use preselected Hue room/zone groups. Individual control resumes when values differ. Group commands are conservatively limited to one per second; individual writes are spaced at least 120 ms apart.
+- Local mDNS rediscovery by bridge identity after IP changes. Pairing credentials survive reconnects.
+- Stable fixture slots, including temporarily missing lights; existing numeric Hue IDs migrate to v2 resource IDs.
+- Hue state events plus a full snapshot every ten seconds; discrepancies are retried after transition settling. Optional refresh (default 30 seconds) reasserts exact targets without color oscillations.
+- Hardened Art-Net parsing, universe-aware poll replies, packet sequencing, and optional sender restriction.
+- Standard / Entertainment / Mixed output modes. Entertainment packets continue even when incoming colors do not change.
+- A small status page with bridge/input/fixture status and a **Reapply current look** button.
+- Configuration backup before migration and an example systemd service.
 
-Install [NodeJS](https://nodejs.org), then open a command prompt:
+## Install on the Pi
 
-```bash
-npm install -g dmx-hue
+Requires **Node.js 22 or newer**, npm, and a Hue bridge supporting API v2. The application runs locally and does not need a Hue cloud account for operation.
+
+```sh
+git clone --branch rewrite/reliable-hue-v2 https://github.com/patrickmac110/dmx-hue.git
+cd dmx-hue
+npm ci
+npm test
+node bin/dmx-hue.js setup
+node bin/dmx-hue.js
 ```
 
-## Usage
+Stop the old receiver first: only one application should own UDP port 6454 or control this lighting rig. Run setup and the service as the **same operating-system user** so they use the same configuration. See [Pi installation and rollback](docs/RASPBERRY_PI.md).
 
-```
-Usage: dmx-hue [setup] [options]
+Existing `dmx-hue` configuration is found using the original `conf` project name. A `.pre-v4.bak` copy is made before the first save. Do not delete this backup. `--config /absolute/path/config.json` selects an existing JSON configuration explicitly. Configuration files contain credentials; do not publish them.
 
-Create an ArtNet DMX<>Hue bridge.
+On migration, keep the previous universe value. **Luminair's displayed universe and raw Art-Net numbering can differ.** This program uses the raw wire number, exactly as the old receiver did; do not assume the label “Universe 2” means wire value 2. Setup shows the current setting and patch addresses.
 
-Options:
-  -h, --host       Host address to listen on              [default: '0.0.0.0']
-  -a, --address    Set DMX address (range 1-511)          [default: 1]
-  -u, --universe   Art-Net universe                       [default: 0]
-  -t, --transition Set transition time in ms              [default: 100]
-                   Can also be set to 'channel' to enable a dedicated DMX
-                   channel on which 1 step equals 100ms.
-  -c, --colorloop  Enable colorloop feature
-                   When enabled, setting all RGB channels of a light to 1 will
-                   enable colorloop mode.
-  -w, --white      Enable 2 additional channels for white balance control
-  -n, --no-limit   Disable safety rate limiting
-                   Warning: when this option is enabled, make sure to not send
-                   more than <number_of_lights>/10 updates per second, or you
-                   might overload your Hue bridge.
+## Automatic grouping without Hue scenes
 
-Note: options overrides settings saved during setup.
+During setup choose existing Hue rooms/zones, or create a zone named **DMX Hue fixtures** with all patched fixtures. This is a one-time membership definition, not a stored lighting look. The application uses a group only when **every member has a known DMX target and the resulting Hue commands match**. It never groups an unpatched or actively streamed fixture.
 
-Commands:
-  setup            Configure hue bridge and DMX options
-    -l, --list     List bridges on the network
-    -i, --ip       Set bridge IP (use first bridge if not specified)
-    --force        Force bridge setup if already configured
-```
+You can retain 32 independent RGB fixtures in Luminair. When all targets match, the selected whole-rig zone gets one write. As targets diverge, the scheduler uses selected matching subgroups or individual writes. Commands already in progress finish before another write starts.
 
-### Setup
+Standard-mode grouping improves cue coordination and reduces requests, but it is not intended for high-frequency effects. For fades generated in Luminair, use `--transition 0` to avoid adding a second fade. Group rate limits mean intermediate DMX colors may be skipped; the latest endpoint is retained.
 
-Before being able to control Hue lights on your network, your first have to setup your Hue bridge with the app.
-Run `dmx-hue setup`, press the **link button** on your Hue bridge within 30s, then run `dmx-hue setup` again.
+## Entertainment mode (optional; physical validation required)
 
-After that, follow instructions to configure the default settings.
-You can change these settings later at anytime by running `dmx-hue setup` again.
+1. Create an Entertainment area in the Hue phone app, containing compatible lights. This does not move your scene programming out of Luminair.
+2. Run `node bin/dmx-hue.js setup` and select **Entertainment** or **Mixed**.
+3. If the old credentials have no Entertainment client key, setup asks for a one-time bridge-button pairing.
+4. Select the area. Setup reports actual covered fixtures and channel count.
 
-Once your Hue bridge is correctly setup, just run `dmx-hue` to start the Art-Net node, then go crazy with your
-favorite DMX controller! :bulb:
+**Entertainment** requires the selected area to cover every configured fixture. **Mixed** streams the area and runs the remaining fixtures through standard control. On this version, one bridge and one selected Entertainment area are supported. It does not bypass the bridge's area capacity, create multiple simultaneous streams, or promise streaming for all 32 physical bulbs.
 
-If you're looking for a nice cross-platform & open-source DMX software controller, you should take a look at
-[QLC+](http://www.qlcplus.org/).
+Channel membership is read from the bridge, including Entertainment service-to-device/light relationships. No fixture-count limit is inferred from a product name. Gradient channels belonging to a single patched light receive that light's DMX color; independently patched gradient segments are not implemented.
 
-#### Setting lights order
+The Pi sends HueStream **v2** packets over DTLS/UDP 2100, using the stored client key. Default rate is 25 frames/second (`--stream-fps 1..50`). This is the transmission rate, not a guaranteed physical refresh rate. Multiple channel records are packed together (up to 20 records per packet). Exact colors are continuously retransmitted. RGB is streamed at 16-bit precision derived from the existing 8-bit DMX values; this does not manufacture additional source resolution.
 
-If you need to define your lights order manually for the DMX mapping, edit your configuration file with a text editor
-(the file path is displayed at the end of `dmx-hue setup`) and add a new `lightsOrder` entry at the end like this:
-```js
-{
-  ...
-  "lightsOrder": [1, 2, 3]  // Hue lights ID
-}
+Streaming keeps a local transition interpolator. Set transition to zero when Luminair drives fades. Legacy RGB+white fixture layout and RGB=1 colorloop are not supported in streaming mode.
+
+The program refuses an already active selected area, checks session ownership, and releases its own stream before standard fallback. If another app is streaming a fixture, standard writes to it are suppressed. An interrupted connection is retried; fallback is visibly reported. Hold-last-look continues streaming the last complete target after DMX stops; stop the service to release control to the Hue app. A bridge reboot or loss of power can still interrupt output.
+
+## Status and options
+
+```sh
+node bin/dmx-hue.js --help
+node bin/dmx-hue.js status
+node bin/dmx-hue.js --dashboard-host 0.0.0.0
 ```
 
-The Hue lights IDs are displayed when `dmx-hue` is started.
+The status page defaults to `http://127.0.0.1:8080`. Use `--dashboard-host 0.0.0.0` to visit `http://<Pi-address>:8080` from the church iPad. It has no login and is intended only for a trusted lighting LAN. It exposes no pairing keys, rejects cross-origin commands, and requires a per-process request token for reapply. Do not forward its port to the internet.
 
-### Hue lights specific features
+- `--host`: Art-Net bind address; default `0.0.0.0` accepts local broadcast.
+- `--source-ip`: optionally accept only a particular DMX sender. Otherwise the first active source owns input until three seconds of silence.
+- `-u`, `-a`, `-t`, `-w`: universe, DMX address, transition, legacy five-channel white layout.
+- `--refresh-ms 0`: disable periodic reassertion (retries/reconciliation remain enabled).
+- `--no-dashboard`: disable the HTTP status listener.
+- Runtime flags override settings for this run, without rewriting saved patch settings.
 
-#### Colorloop
+The default is **hold last look** on signal loss. There is no automatic blackout. No stored look is replayed on cold startup: the application waits for a complete live target for each light. Runtime/latest-color state is not persisted across power loss.
 
-When colorloop option is enabled, your can enable Hue light automatic colorloop mode by setting the R/G/B channels of
-a given light to the value `1`.
+## Known compatibility changes
 
-#### Transition time
+- Requires Node 22+, replaces the unmaintained `node-hue-api` dependency.
+- Legacy `--no-limit` is intentionally not implemented: bridge rate limits stay in force.
+- Legacy RGB=1 automatic colorloop must be explicitly disabled during migration; use Luminair effects instead.
+- Missing fixtures retain slots. To repatch or add new lights after initial migration, stop the service and edit `fixtures` deliberately; setup does not silently reassign existing addresses.
+- Certificate identity/fingerprint is checked before credentials are transmitted. IP changes do not require pairing, but a changed certificate requires physical verification and `setup --force`. Initial migration of an old unpinned credential trusts the configured local bridge connection once.
+- Bridge state is **not an optical acknowledgement** that every bulb physically changed. A faulty/offline bulb or poor Zigbee link can still fail; the dashboard and reconciliation help diagnose/recover.
 
-Hue light can automatically perform transitions from one state to another in a specified time. This is especially
-useful since there is a somewhat low update rate limitation on Hue lights (see next section for more details). If you
-want to go creative and be able to adjust transition times dynamically, you can dedicate a DMX channel for it.
+## Validation
 
-#### White control
-
-When option `--white` is enabled, channels 4-5 for each fixture are reserved for white control. When R/G/B channels are at value `0`, channel 4 will control temperature, and channel 5 will control brightness. Brightness is currently overriden by R/G/B channels if they are not at value `0`.
-
-Using this option also enables control of Philips White Ambience Lights when R/G/B channels are at value `0`.
-
-## Philips Hue response times vs DMX
-
-With the Philips Hue API it’s only possible to update the state of bulbs 10 times per second, 1 bulb at a time.
-Compared to a single DMX universe, which controls all 512 individual parameters up to 44 times per second, there’s
-some major differences in how quickly we can update your lights using this software bridge.
-
-This is especially noticeable when using automation sequences, if you try to update Hue lights quicker than 0.1s times
-the number of lights in your projects, some updates may be skipped. This is unfortunately a limitation with the Hue
-lights API and I cannot do anything about that.
-
-### Safety rate limiting
-
-By default, a safety rate limit is enforced so there is always a 0,1s interval between Hue API calls. You can disable
-this limit using the `--no-limit` option, but then you have to make sure to not make more than *number_of_lights / 10*
-DMX value changes per second, or your Hue bridge might get overloaded and may crash.
-
-## Development
-
-To run the project without installing, clone the repository and run the following commands from the folder:
-
-```bash
-npm install
-npm start
+```sh
+npm test
+npm run format:check
 ```
 
-Changes you make to the source will be immediately available when you run in this way.
+Tests exercise scheduler failures, latest-target races, group/individual ordering, live UDP Art-Net reception, malformed packets, stable patch migration, rediscovery, v2 packet encoding, and simulated streaming lifecycle/fallback. See [acceptance checklist](docs/ACCEPTANCE.md) before using the release live.
+
+Protocol references: [Hue API v2](https://developers.meethue.com/new-hue-api/), [Hue discovery](https://developers.meethue.com/develop/get-started-2/), [v2 streaming reference implementation](https://github.com/michielpost/Q42.HueApi), [Art-Net](https://art-net.org.uk/), and [Luminair manual](https://support.luminair.app/hc/en-us/article_attachments/4411741402388).
+
+MIT license; original project by Yohan Lasorsa. This rewrite preserves the original license.
+
+### Group update rate
+
+Setup saves a minimum group update interval (`groupIntervalMs`, default 1000 ms).
+For a temporary live test, add `--group-interval-ms 250` (at most four group writes
+per second). `0` removes the extra group delay, but the shared 120 ms write spacing
+and one-in-flight-request rule remain; it is not unlimited output. Slower HTTP
+responses and retries further reduce the achievable rate. Status shows both intervals.
+Faster rates are experimental and may cause missed updates or slower bridge response;
+the default follows Hue's older group API guidance, not a measured v2 bridge limit.
+For the legacy speed-channel layout, keep transition set to `channel` and send zero
+on that DMX channel during Luminair-driven fade tests, preserving fixture addresses.
+
+### Isolated Entertainment test with an existing five-channel patch
+
+Create a small Entertainment area in the Hue app, stop the regular receiver, then run:
+
+```sh
+node bin/stream-probe.js --config /absolute/path/config-church.json
+```
+
+Choose the area and press the bridge button if prompted. Separate test credentials are
+saved in `entertainment-test.local.json` beside the configuration. Normal receiver
+settings are unchanged. The test preserves fixture addresses, the five-channel stride,
+and the speed-channel slot. It ignores Hue transition duration and streams RGB values
+at 25 fps so Luminair can supply Normal Fade transitions. Only area members respond;
+other Hue lights hold their previous state. No REST fallback runs in this test.
+
+Use RGB-to-RGB scenes for this first transport test. White-temperature looks hold the
+last streamed RGB color (or delay startup until RGB is received for every area member).
+Blackout is supported. Ctrl+C releases the area; restart the normal receiver afterward.
+Bridge communication failures end this diagnostic rather than silently changing modes.
+The real DTLS handshake still needs hardware validation. Area capacity is limited by
+what the Hue bridge/app supports; this is not an all-32-light streaming solution.
+
+### Automatic bulb recovery
+
+Unreachable fixtures remain patched. The controller tracks Hue Zigbee connectivity
+through events and ten-second resource snapshots, retaining each fixture's latest DMX
+target. Retry delays are 0.5, 1, then 2 seconds, with a shared budget of at most two
+background retry requests per second; normal cue writes take priority, so actual retry
+intervals can be longer under load or with many offline lights. A connected event
+clears the bulb's backoff and queues its latest look under normal write pacing.
+
+Matching group cues still include offline members. Retry-only work targets individual
+bulbs, preventing an unplugged fixture from repeatedly restarting the whole group's
+fade. HTTP success while the bridge still reports a bulb offline does not clear its
+recovery state. Where a group error identifies particular lights, healthy members are
+not unnecessarily retried. Streaming ownership exclusions still apply.
+
+The temporary `id: null, disabledId: ...` troubleshooting markers are restored and
+saved on connection automatically. Other empty slots and legacy exclusions stay as
+configured. Keep unused cross lights outside the downlight zone. No dashboard action
+is needed; power the light on and allow the bridge to reestablish its Zigbee link.
