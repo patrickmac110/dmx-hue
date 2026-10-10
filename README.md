@@ -113,3 +113,25 @@ Faster rates are experimental and may cause missed updates or slower bridge resp
 the default follows Hue's older group API guidance, not a measured v2 bridge limit.
 For the legacy speed-channel layout, keep transition set to `channel` and send zero
 on that DMX channel during Luminair-driven fade tests, preserving fixture addresses.
+
+### Isolated Entertainment test with an existing five-channel patch
+
+Create a small Entertainment area in the Hue app, stop the regular receiver, then run:
+
+```sh
+node bin/stream-probe.js --config /absolute/path/config-church.json
+```
+
+Choose the area and press the bridge button if prompted. Separate test credentials are
+saved in `entertainment-test.local.json` beside the configuration. Normal receiver
+settings are unchanged. The test preserves fixture addresses, the five-channel stride,
+and the speed-channel slot. It ignores Hue transition duration and streams RGB values
+at 25 fps so Luminair can supply Normal Fade transitions. Only area members respond;
+other Hue lights hold their previous state. No REST fallback runs in this test.
+
+Use RGB-to-RGB scenes for this first transport test. White-temperature looks hold the
+last streamed RGB color (or delay startup until RGB is received for every area member).
+Blackout is supported. Ctrl+C releases the area; restart the normal receiver afterward.
+Bridge communication failures end this diagnostic rather than silently changing modes.
+The real DTLS handshake still needs hardware validation. Area capacity is limited by
+what the Hue bridge/app supports; this is not an all-32-light streaming solution.
