@@ -68,3 +68,32 @@ test("bridge startup outage is recoverable without losing configuration", async 
   assert.equal(await h.ensureConnected(), true);
   assert.equal(c.key, "key");
 });
+
+test("periodic snapshots use the same resource endpoint as initial connection", async () => {
+  let polls = 0;
+  const h = new Hue(
+    { id: "AAAA", ip: "bridge", key: "key" },
+    {
+      discover: async () => [],
+      request: async (_credentials, path) => {
+        if (path === "/api/config")
+          return { fingerprint: "pin", payload: { bridgeid: "AAAA" } };
+        if (path === "/clip/v2/resource") {
+          polls++;
+          return {
+            payload: {
+              data: [{ id: "a", type: "light", on: { on: polls > 1 } }]
+            }
+          };
+        }
+        throw Error("Not Found");
+      }
+    }
+  );
+  assert.equal(await h.ensureConnected(), true);
+  assert.equal(await h.snapshot(), true);
+  assert.equal(h.connected, true);
+  assert.equal(h.lights().get("a").on.on, true);
+  assert.equal(await h.snapshot(), true);
+  assert.equal(polls, 3);
+});
