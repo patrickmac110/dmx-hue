@@ -153,3 +153,33 @@ test("matching group waits for group rate limit instead of staggering individual
   await s.tick();
   assert.deepEqual(calls, ["grouped_light/all", "grouped_light/all"]);
 });
+
+test("configurable group interval coalesces targets and zero retains write pacing", async () => {
+  const calls = [];
+  const { s, advance } = harness(
+    async (p, b) => calls.push({ p, b }),
+    [{ id: "all", members: ["a", "b"] }]
+  );
+  s.groupIntervalMs = 250;
+  for (const id of ["a", "b"]) s.set(id, red);
+  await s.tick();
+  advance(100);
+  for (const id of ["a", "b"]) s.set(id, blue);
+  await s.tick();
+  assert.equal(calls.length, 1);
+  advance(150);
+  await s.tick();
+  assert.equal(calls.length, 2);
+  assert.ok(calls.every((c) => c.p === "grouped_light/all"));
+  advance(250);
+  s.groupIntervalMs = 0;
+  for (const id of ["a", "b"]) s.set(id, red);
+  await s.tick();
+  for (const id of ["a", "b"]) s.set(id, blue);
+  advance(99);
+  await s.tick();
+  assert.equal(calls.length, 3);
+  advance(1);
+  await s.tick();
+  assert.equal(calls.length, 4);
+});

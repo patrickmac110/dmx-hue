@@ -20,6 +20,7 @@ const help = `DMX Hue 4 — reliable local Art-Net → Hue v2
   dmx-hue [--config FILE] [--host 0.0.0.0] [-u UNIVERSE] [-a ADDRESS]
           [-t MILLISECONDS|channel] [--mode standard|entertainment|mixed]
           [--source-ip IP] [--dashboard-host 127.0.0.1] [--dashboard-port 8080]
+          [--group-interval-ms 1000]
           [--no-dashboard] [--refresh-ms 30000] [--stream-fps 25]
   dmx-hue status [--config FILE]
 
@@ -83,6 +84,8 @@ export class DmxHue {
     if (a.mode !== undefined) c.mode = a.mode;
     if (a.white) c.white = true;
     if (a["refresh-ms"] !== undefined) c.refreshMs = Number(a["refresh-ms"]);
+    if (a["group-interval-ms"] !== undefined)
+      c.groupIntervalMs = Number(a["group-interval-ms"]);
     if (a["stream-fps"] !== undefined) c.streamFps = Number(a["stream-fps"]);
     if (a.colorloop || c.legacy?.colorloop)
       throw new Error(
@@ -104,6 +107,7 @@ export class DmxHue {
       lights: () => this.hue.lights(),
       groups: () => this.hue.groups(c.groups),
       refreshMs: c.refreshMs,
+      groupIntervalMs: c.groupIntervalMs ?? 1000,
       onError: (e) => this.logError(e)
     });
     this.hue.on("connected", () => {

@@ -101,3 +101,15 @@ Tests exercise scheduler failures, latest-target races, group/individual orderin
 Protocol references: [Hue API v2](https://developers.meethue.com/new-hue-api/), [Hue discovery](https://developers.meethue.com/develop/get-started-2/), [v2 streaming reference implementation](https://github.com/michielpost/Q42.HueApi), [Art-Net](https://art-net.org.uk/), and [Luminair manual](https://support.luminair.app/hc/en-us/article_attachments/4411741402388).
 
 MIT license; original project by Yohan Lasorsa. This rewrite preserves the original license.
+
+### Group update rate
+
+Setup saves a minimum group update interval (`groupIntervalMs`, default 1000 ms).
+For a temporary live test, add `--group-interval-ms 250` (at most four group writes
+per second). `0` removes the extra group delay, but the shared 120 ms write spacing
+and one-in-flight-request rule remain; it is not unlimited output. Slower HTTP
+responses and retries further reduce the achievable rate. Status shows both intervals.
+Faster rates are experimental and may cause missed updates or slower bridge response;
+the default follows Hue's older group API guidance, not a measured v2 bridge limit.
+For the legacy speed-channel layout, keep transition set to `channel` and send zero
+on that DMX channel during Luminair-driven fade tests, preserving fixture addresses.
