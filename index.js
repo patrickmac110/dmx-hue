@@ -105,6 +105,7 @@ export class DmxHue {
     this.scheduler = new Scheduler({
       write: (path, body) => this.hue.write(path, body),
       lights: () => this.hue.lights(),
+      connectivity: () => this.hue.connectivity(),
       groups: () => this.hue.groups(c.groups),
       refreshMs: c.refreshMs,
       groupIntervalMs: c.groupIntervalMs ?? 1000,
@@ -132,9 +133,10 @@ export class DmxHue {
       console.log(JSON.stringify(this.status(), null, 2));
       return;
     }
-    this.events = new HueEvents(this.hue, () =>
-      this.scheduler.reconcile(this.hue.lights())
-    );
+    this.events = new HueEvents(this.hue, () => {
+      this.scheduler.updateConnectivity();
+      this.scheduler.reconcile(this.hue.lights());
+    });
     if (c.mode !== "standard") {
       this.stream = new Entertainment({
         hue: this.hue,

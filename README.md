@@ -135,3 +135,23 @@ Blackout is supported. Ctrl+C releases the area; restart the normal receiver aft
 Bridge communication failures end this diagnostic rather than silently changing modes.
 The real DTLS handshake still needs hardware validation. Area capacity is limited by
 what the Hue bridge/app supports; this is not an all-32-light streaming solution.
+
+### Automatic bulb recovery
+
+Unreachable fixtures remain patched. The controller tracks Hue Zigbee connectivity
+through events and ten-second resource snapshots, retaining each fixture's latest DMX
+target. Retry delays are 0.5, 1, then 2 seconds, with a shared budget of at most two
+background retry requests per second; normal cue writes take priority, so actual retry
+intervals can be longer under load or with many offline lights. A connected event
+clears the bulb's backoff and queues its latest look under normal write pacing.
+
+Matching group cues still include offline members. Retry-only work targets individual
+bulbs, preventing an unplugged fixture from repeatedly restarting the whole group's
+fade. HTTP success while the bridge still reports a bulb offline does not clear its
+recovery state. Where a group error identifies particular lights, healthy members are
+not unnecessarily retried. Streaming ownership exclusions still apply.
+
+The temporary `id: null, disabledId: ...` troubleshooting markers are restored and
+saved on connection automatically. Other empty slots and legacy exclusions stay as
+configured. Keep unused cross lights outside the downlight zone. No dashboard action
+is needed; power the light on and allow the bridge to reestablish its Zigbee link.
